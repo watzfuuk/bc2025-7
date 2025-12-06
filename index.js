@@ -1,23 +1,20 @@
+require('dotenv').config(); 
 const express = require('express');
-const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { program } = require('commander');
 const { v4: uuidv4 } = require('uuid');
 const multer = require('multer');
 const swaggerUi = require('swagger-ui-express');
 const YAML = require('yamljs');
+const mongoose = require('mongoose');
 
-program
-  .requiredOption('-h, --host <type>', 'Server host')
-  .requiredOption('-p, --port <type>', 'Server port')
-  .requiredOption('-c, --cache <type>', 'Path to uploads directory');
-program.parse(process.argv);
-const options = program.opts();
+const app = express();
 
-const HOST = options.host;
-const PORT = options.port;
-const RELATIVE_UPLOADS_DIR = options.cache; 
+const HOST = process.env.HOST || '0.0.0.0'; 
+const PORT = process.env.PORT || 3000;
+const RELATIVE_UPLOADS_DIR = process.env.CACHE_DIR || 'uploads';
+const DB_URL = process.env.DB_URL || 'mongodb://localhost:27017/bc2025-7';
+
 const ABSOLUTE_UPLOADS_DIR = path.resolve(__dirname, RELATIVE_UPLOADS_DIR);
 
 if (!fs.existsSync(ABSOLUTE_UPLOADS_DIR)) {
@@ -25,7 +22,20 @@ if (!fs.existsSync(ABSOLUTE_UPLOADS_DIR)) {
   fs.mkdirSync(ABSOLUTE_UPLOADS_DIR, { recursive: true });
 }
 
-const app = express();
+mongoose.connect(DB_URL)
+  .then(() => console.log(`Connected to DB at ${DB_URL}`))
+  .catch((err) => console.error('DB connection error:', err));
+
+
+const InventorySchema = new mongoose.Schema({
+  id: { type: String, required: true, unique: true }, 
+  name: { type: String, required: true },
+  description: { type: String },
+  photoUrl: { type: String }
+});
+
+const InventoryItem = mongoose.model('InventoryItem', InventorySchema);
+
 const swaggerDocument = YAML.load('./swagger.yaml');
 
 app.use((req, res, next) => {
@@ -49,83 +59,115 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage: storage });
 
-let inventory = [];
 
 app.get('/RegisterForm.html', (req, res) => res.sendFile(path.join(__dirname, 'RegisterForm.html')));
 app.get('/SearchForm.html', (req, res) => res.sendFile(path.join(__dirname, 'SearchForm.html')));
 
-app.post('/register', upload.single('photo'), (req, res) => {
-  console.log('Request reached /register handler. Body:', req.body);
-  
-  const { inventory_name, description } = req.body;
-  if (!inventory_name) {
-    return res.status(400).json({ message: 'Inventory name is required' });
-  }
-  const newItem = {
-    id: uuidv4(),
-    name: inventory_name,
-    description: description || '',
-    photoUrl: req.file ? `/photos/${req.file.filename}` : null
-  };
-  inventory.push(newItem);
-  res.status(201).json(newItem);
-});
 
-app.get('/inventory', (req, res) => res.status(200).json(inventory));
 
-app.get('/inventory/:id', (req, res) => {
-    const item = inventory.find(i => i.id === req.params.id);
-    if (!item) return res.status(404).json({ message: 'Item not found' });
-    res.status(200).json(item);
-});
-
-app.put('/inventory/:id', (req, res) => {
-    const item = inventory.find(i => i.id === req.params.id);
-    if (!item) return res.status(404).json({ message: 'Item not found' });
-    const { name, description } = req.body;
-    if (name !== undefined) item.name = name;
-    if (description !== undefined) item.description = description;
-    res.status(200).json(item);
-});
-
-app.delete('/inventory/:id', (req, res) => {
-    const itemIndex = inventory.findIndex(i => i.id === req.params.id);
-    if (itemIndex === -1) return res.status(404).json({ message: 'Item not found' });
-    inventory.splice(itemIndex, 1);
-    res.status(200).json({ message: 'Item deleted successfully' });
-});
-
-app.post('/search', (req, res) => {
-    const { id, includePhoto } = req.body;
-    const item = inventory.find(i => i.id === id);
-    if (!item) return res.status(404).send('<h2>Item not found by ID</h2>');
-    const itemResponse = { ...item };
-    if (includePhoto === 'on' && itemResponse.photoUrl) {
-        const fullPhotoUrl = `http://${HOST}:${PORT}${itemResponse.photoUrl}`;
-        itemResponse.description += `\n\n[Photo Link: ${fullPhotoUrl}]`;
+app.post('/register', upload.single('photo'), async (req, res) => {
+  try {
+    const { inventory_name, description } = req.body;
+    if (!inventory_name) {
+      return res.status(400).json({ message: 'Inventory name is required' });
     }
-    res.status(200).json(itemResponse);
+    
+    
+    const newItem = new InventoryItem({
+      id: uuidv4(),
+      name: inventory_name,
+      description: description || '',
+      photoUrl: req.file ? `/photos/${req.file.filename}` : null
+    });
+
+    await newItem.save(); 
+    res.status(201).json(newItem);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 });
 
-app.all('/inventory/:id', (req, res) => {
-    res.setHeader('Allow', 'GET, PUT, DELETE');
-    res.status(405).send('Method Not Allowed');
+app.get('/inventory', async (req, res) => {
+  try {
+    const items = await InventoryItem.find(); 
+    res.status(200).json(items);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 });
 
-app.all('/register', (req, res) => {
-    res.setHeader('Allow', 'POST');
-    res.status(405).send('Method Not Allowed');
+app.get('/inventory/:id', async (req, res) => {
+    try {
+      const item = await InventoryItem.findOne({ id: req.params.id });
+      if (!item) return res.status(404).json({ message: 'Item not found' });
+      res.status(200).json(item);
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
 });
 
-app.all('/inventory', (req, res) => {
-    res.setHeader('Allow', 'GET');
-    res.status(405).send('Method Not Allowed');
+app.put('/inventory/:id', upload.single('photo'), async (req, res) => {
+    try {
+      
+      const { name, description } = req.body;
+      const updateData = {};
+
+      
+      if (name !== undefined) updateData.name = name;
+      if (description !== undefined) updateData.description = description;
+
+      if (req.file) {
+        updateData.photoUrl = `/photos/${req.file.filename}`;
+      }
+
+      const item = await InventoryItem.findOneAndUpdate(
+        { id: req.params.id }, 
+        updateData, 
+        { new: true } 
+      );
+
+      if (!item) return res.status(404).json({ message: 'Item not found' });
+      
+      res.status(200).json(item);
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
 });
 
-app.all('/search', (req, res) => {
-    res.setHeader('Allow', 'POST');
-    res.status(405).send('Method Not Allowed');
+app.delete('/inventory/:id', async (req, res) => {
+    try {
+      const result = await InventoryItem.findOneAndDelete({ id: req.params.id });
+      if (!result) return res.status(404).json({ message: 'Item not found' });
+      res.status(200).json({ message: 'Item deleted successfully' });
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
 });
+
+app.post('/search', async (req, res) => {
+    try {
+      const { id, includePhoto } = req.body;
+      const item = await InventoryItem.findOne({ id: id });
+      
+      if (!item) return res.status(404).send('<h2>Item not found by ID</h2>');
+      
+      
+      const itemResponse = item.toObject();
+      
+      if (includePhoto === 'on' && itemResponse.photoUrl) {
+          const fullPhotoUrl = `http://localhost:${PORT}${itemResponse.photoUrl}`; 
+          itemResponse.description += `\n\n[Photo Link: ${fullPhotoUrl}]`;
+      }
+      res.status(200).json(itemResponse);
+    } catch (err) {
+      res.status(500).send(err.message);
+    }
+});
+
+app.all('/inventory/:id', (req, res) => res.status(405).send('Method Not Allowed'));
+app.all('/register', (req, res) => res.status(405).send('Method Not Allowed'));
+app.all('/inventory', (req, res) => res.status(405).send('Method Not Allowed'));
+app.all('/search', (req, res) => res.status(405).send('Method Not Allowed'));
 
 app.listen(PORT, HOST, () => {
   console.log(`Server is running at http://${HOST}:${PORT}`);
