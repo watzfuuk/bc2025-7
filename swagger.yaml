@@ -1,0 +1,156 @@
+openapi: 3.0.0
+info:
+  title: Inventory Service API
+  version: 1.0.0
+  description: A simple API to manage an inventory of items for Lab 6.
+
+paths:
+  /register:
+    post:
+      tags: [Inventory]
+      summary: Register a new item
+      description: Adds a new item to the inventory, including an optional photo upload.
+      requestBody:
+        description: Item data to create.
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [inventory_name]
+              properties:
+                inventory_name:
+                  type: string
+                  description: "The name of the item (required)."
+                  example: "Laptop MSI Katana"
+                description:
+                  type: string
+                  description: "A description for the item."
+                  example: "17-inch, 16GB RAM, 1TB SSD"
+                photo:
+                  type: string
+                  format: binary
+                  description: "An image file of the item (optional)."
+      responses:
+        '201':
+          description: Item created successfully. Returns the new item's data.
+        '400':
+          description: Bad Request. The `inventory_name` field is missing.
+
+  /inventory:
+    get:
+      tags: [Inventory]
+      summary: Retrieve a list of all items
+      description: Returns a JSON array of all items currently in the inventory.
+      responses:
+        '200':
+          description: A list of items.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/InventoryItem'
+
+  /inventory/{id}:
+    get:
+      tags: [Inventory]
+      summary: Get a single item by its ID
+      description: Retrieves the full details of a specific inventory item.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          description: The unique ID of the item to retrieve.
+          schema:
+            type: string
+            example: "a1b2c3d4-e5f6-7890-1234-567890abcdef"
+      responses:
+        '200':
+          description: The requested inventory item.
+        '404':
+          description: Item with the specified ID was not found.
+    put:
+      tags: [Inventory]
+      summary: Update an item by ID
+      description: Updates the name and/or description of an existing item.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          description: The unique ID of the item to update.
+          schema:
+            type: string
+      requestBody:
+        description: The new data for the item.
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+      responses:
+        '200':
+          description: Item updated successfully.
+        '404':
+          description: Item not found.
+    delete:
+      tags: [Inventory]
+      summary: Delete an item by ID
+      description: Permanently removes an item from the inventory.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          description: The unique ID of the item to delete.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Item deleted successfully.
+        '404':
+          description: Item not found.
+
+  /search:
+    post:
+      tags: [Search]
+      summary: Search for an item by ID
+      description: Finds an item by its ID and optionally appends a link to its photo in the description.
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: string
+                  description: The ID of the item to search for.
+                includePhoto:
+                  type: string
+                  description: Checkbox value ('on' if checked) to include photo link.
+      responses:
+        '200':
+          description: Found item's data.
+        '404':
+          description: Item not found.
+
+components:
+  schemas:
+    InventoryItem:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "a1b2c3d4-e5f6-7890-1234-567890abcdef"
+        name:
+          type: string
+          example: "My Item"
+        description:
+          type: string
+          example: "This is a detailed description."
+        photoUrl:
+          type: string
+          example: "/photos/16252412512-image.jpg"
