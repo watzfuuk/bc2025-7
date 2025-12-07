@@ -6,8 +6,8 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node index.js",
-    "dev": "nodemon -L index.js --",
-    "debug": "node -L --inspect=0.0.0.0:9229 index.js"
+    "dev": "nodemon -L index.js",
+    "debug": "nodemon -L --watch . --ignore node_modules --inspect=0.0.0.0:9229 index.js"
   },
   "repository": {
     "type": "git",
