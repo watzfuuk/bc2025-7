@@ -1,0 +1,7 @@
+{
+  "legacyWatch": true,
+  "watch": ["."],
+  "ext": "js,json,html",
+  "ignore": ["node_modules", "uploads", ".git", "*.test.js"],
+  "pollingInterval": 1000
+}
